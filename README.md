@@ -2,6 +2,9 @@
 
 LMS live is a single-file web application designed to provide a threaded, agentic chat interface for local LLMs running via LM Studio. It features persistent storage, real-time streaming, and web-grounding capabilities through the Tavily API.
 
+<img width="945.5" height="468.5" alt="LM Live Screesnshot" src="https://github.com/user-attachments/assets/c600577d-66a1-44c1-83ab-347bb8cafbd7" />
+
+
 ## 🚀 Features
 
 - Threaded Conversations: Organise chats into independent threads with the ability to rename, delete, and manage history.
