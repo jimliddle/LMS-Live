@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LMS Live</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Dexie for IndexedDB -->
+    <script src="https://unpkg.com/dexie/dist/dexie.js"></script>
+    <!-- html2pdf for PDF export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Marked for Markdown Parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .sidebar-item-active { background-color: #334155; border-left: 4px solid #38bdf8; }
+        .chat-bubble-user { background-color: #1e293b; border: 1px solid #334155; }
+        .chat-bubble-bot { background-color: #0f172a; border: 1px solid #1e293b; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .glass { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .status-online { background-color: #10b981; box-shadow: 0 0 8px #10b981; }
+        .status-offline { background-color: #ef4444; box-shadow: 0 0 8px #ef4444; }
+        
+        #model-select option { background-color: #1e293b; color: #f8fafc; }
+        
+        /* Markdown Styles */
+        .prose { max-width: none; font-size: 0.875rem; line-height: 1.6; }
+        .prose h1, .prose h2, .prose h3 { font-weight: 700; margin-top: 1em; margin-bottom: 0.5em; color: #38bdf8; }
+        .prose ul, .prose ol { padding-left: 1.25em; margin-bottom: 1em; }
+        .prose ul { list-style-type: disc; }
+        .prose li { margin-bottom: 0.25em; }
+        .prose strong { color: #f1f5f9; font-weight: 600; }
+        .prose a { color: #38bdf8; text-decoration: underline; cursor: pointer; }
+        .prose a:hover { color: #7dd3fc; }
+        .prose code { background: #334155; padding: 0.2em 0.4em; border-radius: 0.25rem; font-family: monospace; }
+        .prose pre { background: #020617; padding: 1rem; border-radius: 0.5rem; overflow-x: auto; margin: 1em 0; border: 1px solid #1e293b; }
+        
+        @keyframes pulse-custom { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        .thinking-dots { animation: pulse-custom 1.5s infinite; }
+
+        @media print {
+            #print-area { display: block; color: black; background: white; padding: 20px; }
+            .no-print { display: none !important; }
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+    <!-- Connection Warning -->
+    <div id="connection-warning" class="hidden bg-amber-900/40 border-b border-amber-500/50 p-3 text-center text-xs text-amber-200">
+        <div class="flex items-center justify-center gap-2">
+            <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+            <span><strong>CORS Required:</strong> Ensure the <b>"Enable CORS"</b> toggle in LM Studio is <b>ON</b>.</span>
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="h-16 border-b border-slate-800 flex items-center justify-between px-6 glass shrink-0 z-10">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-sky-500 rounded-lg">
+                <i data-lucide="bot" class="text-white w-6 h-6"></i>
+            </div>
+            <h1 class="text-xl font-bold tracking-tight">LMS <span class="text-sky-400">Live</span></h1>
+        </div>
+        
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2 bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 shadow-inner">
+                <span id="lms-status-dot" class="status-dot status-offline"></span>
+                <select id="model-select" class="bg-transparent text-sm focus:outline-none min-w-[180px] text-slate-100">
+                    <option value="">Connecting...</option>
+                </select>
+                <button onclick="refreshModels()" title="Refresh Models" class="hover:text-sky-400 transition-colors">
+                    <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+            <button onclick="toggleSettings()" class="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400">
+                <i data-lucide="settings" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Sidebar -->
+        <aside class="w-72 border-r border-slate-800 flex flex-col glass shrink-0">
+            <div class="p-4">
+                <button onclick="createNewThread()" class="w-full flex items-center justify-center gap-2 bg-sky-600 hover:bg-sky-500 text-white font-medium py-2 rounded-lg transition-all shadow-lg shadow-sky-900/20">
+                    <i data-lucide="plus-circle" class="w-4 h-4"></i> New Chat
+                </button>
+            </div>
+            
+            <div id="thread-list" class="flex-1 overflow-y-auto px-2 space-y-1 pb-4"></div>
+
+            <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex justify-between">
+                <span>Storage: IndexedDB</span>
+                <button onclick="clearAllData()" class="text-red-400 hover:text-red-300">Clear Data</button>
+            </div>
+        </aside>
+
+        <!-- Main Chat Area -->
+        <main class="flex-1 flex flex-col relative bg-slate-950/20">
+            <!-- Chat Header -->
+            <div id="active-thread-header" class="h-12 border-b border-slate-800 flex items-center justify-between px-6 bg-slate-900/80">
+                <div class="flex items-center gap-2">
+                    <span id="current-thread-title" class="font-medium truncate max-w-xs text-slate-200">Select a chat</span>
+                    <button id="edit-thread-btn" class="hidden p-1 hover:text-sky-400"><i data-lucide="edit-3" class="w-3.5 h-3.5"></i></button>
+                </div>
+                <div class="flex items-center gap-3">
+                    <button onclick="exportToPDF()" class="text-xs flex items-center gap-1.5 px-2 py-1 hover:bg-slate-800 rounded border border-slate-700">
+                        <i data-lucide="file-text" class="w-3.5 h-3.5"></i> PDF
+                    </button>
+                </div>
+            </div>
+
+            <!-- Messages Container -->
+            <div id="chat-container" class="flex-1 overflow-y-auto p-6 space-y-6">
+                <div class="flex flex-col items-center justify-center h-full text-slate-500 space-y-4 text-center px-8">
+                    <i data-lucide="message-square" class="w-12 h-12 opacity-20"></i>
+                    <p>Select a chat or start a new one to begin</p>
+                </div>
+            </div>
+
+            <!-- Input Area -->
+            <div class="p-4 border-t border-slate-800 glass">
+                <div class="max-w-4xl mx-auto space-y-3">
+                    <!-- Preview Area -->
+                    <div id="attachment-preview" class="flex flex-wrap gap-2 empty:hidden"></div>
+
+                    <div class="relative group">
+                        <textarea id="user-input" rows="1" placeholder="Type a message... (Shift+Enter for new line)" class="w-full bg-slate-800 border border-slate-700 rounded-xl pl-12 pr-12 py-3 focus:outline-none focus:ring-2 focus:ring-sky-500/50 resize-none transition-all"></textarea>
+                        
+                        <div class="absolute left-3 bottom-3 flex items-center">
+                            <label for="file-upload" class="cursor-pointer p-1.5 hover:bg-slate-700 rounded-lg text-slate-400 hover:text-sky-400 transition-colors">
+                                <i data-lucide="paperclip" class="w-5 h-5"></i>
+                                <input type="file" id="file-upload" class="hidden" multiple accept="image/*,.pdf,.txt">
+                            </label>
+                        </div>
+
+                        <button id="send-btn" class="absolute right-3 bottom-3 p-1.5 bg-sky-600 hover:bg-sky-500 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all">
+                            <i data-lucide="send" class="w-5 h-5"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center justify-between px-2 text-[10px] text-slate-500 uppercase font-bold tracking-widest">
+                        <div class="flex items-center gap-4">
+                            <label class="flex items-center gap-1.5 cursor-pointer hover:text-slate-300">
+                                <input type="checkbox" id="force-search" class="rounded border-slate-700 bg-slate-800 text-sky-500 focus:ring-0">
+                                Ground response with live info
+                            </label>
+                        </div>
+                        <div id="action-status" class="text-sky-400 hidden">
+                            <span class="flex items-center gap-2">
+                                <span class="thinking-dots w-1.5 h-1.5 bg-sky-400 rounded-full"></span>
+                                <span id="action-text">Thinking...</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+        <div class="bg-slate-900 border border-slate-800 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+            <div class="p-6 border-b border-slate-800 flex justify-between items-center">
+                <h2 class="text-xl font-bold">Settings</h2>
+                <button onclick="toggleSettings()" class="text-slate-400 hover:text-white"><i data-lucide="x" class="w-6 h-6"></i></button>
+            </div>
+            <div class="p-6 space-y-6">
+                <div class="space-y-2">
+                    <label class="text-sm font-medium text-slate-400">LM Studio Base URL</label>
+                    <input type="text" id="lms-url" value="http://localhost:1234" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-sky-500 outline-none">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-sm font-medium text-slate-400">Tavily API Key</label>
+                    <input type="password" id="tavily-key" placeholder="tvly-..." class="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 focus:ring-2 focus:ring-sky-500 outline-none">
+                </div>
+                <div class="space-y-2 py-2 border-t border-slate-800">
+                    <label class="flex items-center justify-between cursor-pointer group" title="The LLM will decide if more up to date information is required">
+                        <div class="flex flex-col">
+                            <span class="text-sm font-medium text-slate-200">Tavily Agentic</span>
+                            <span class="text-[10px] text-slate-500">The LLM will decide if more up to date information is required</span>
+                        </div>
+                        <input type="checkbox" id="search-toggle" class="rounded border-slate-700 bg-slate-800 text-sky-500 focus:ring-0">
+                    </label>
+                </div>
+            </div>
+            <div class="p-4 bg-slate-950/50 flex justify-end">
+                <button onclick="toggleSettings()" class="bg-sky-600 hover:bg-sky-500 px-6 py-2 rounded-lg font-medium transition-colors">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Printable Area -->
+    <div id="pdf-content"></div>
+
+    <script>
+        // --- Database & State Management ---
+        const db = new Dexie('LMSChatDB');
+        db.version(3).stores({
+            threads: 'id, title, createdAt, lastUpdatedAt, systemPrompt',
+            messages: 'id, threadId, role, content, attachments, timestamp, parentId, searchResults, modelUsed'
+        });
+
+        let currentThreadId = null;
+        let attachments = [];
+        let isProcessing = false;
+
+        const CONFIG = {
+            get lmsUrl() { return localStorage.getItem('lmsUrl') || 'http://localhost:1234'; },
+            get tavilyKey() { return localStorage.getItem('tavilyKey') || ''; },
+            get selectedModel() { return localStorage.getItem('selectedModel') || ''; },
+            get agenticSearch() { return localStorage.getItem('agenticSearch') === 'true'; }
+        };
+
+        // --- Initialization ---
+        window.onload = async () => {
+            lucide.createIcons();
+            loadSettings();
+            await refreshModels();
+            await loadThreads();
+            
+            document.getElementById('send-btn').addEventListener('click', handleSend);
+            document.getElementById('user-input').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    handleSend();
+                }
+            });
+            document.getElementById('file-upload').addEventListener('change', handleFiles);
+            
+            document.getElementById('lms-url').addEventListener('change', (e) => {
+                localStorage.setItem('lmsUrl', e.target.value);
+                refreshModels();
+            });
+            document.getElementById('tavily-key').addEventListener('change', (e) => localStorage.setItem('tavilyKey', e.target.value));
+            document.getElementById('search-toggle').addEventListener('change', (e) => {
+                localStorage.setItem('agenticSearch', e.target.checked);
+            });
+            document.getElementById('model-select').addEventListener('change', (e) => localStorage.setItem('selectedModel', e.target.value));
+
+            const tx = document.getElementById('user-input');
+            tx.addEventListener("input", function() {
+                this.style.height = "auto";
+                this.style.height = (this.scrollHeight) + "px";
+            }, false);
+        };
+
+        function loadSettings() {
+            document.getElementById('lms-url').value = CONFIG.lmsUrl;
+            document.getElementById('tavily-key').value = CONFIG.tavilyKey;
+            document.getElementById('search-toggle').checked = CONFIG.agenticSearch;
+        }
+
+        async function refreshModels() {
+            const select = document.getElementById('model-select');
+            const statusDot = document.getElementById('lms-status-dot');
+            const connWarn = document.getElementById('connection-warning');
+            statusDot.className = 'status-dot status-offline';
+            try {
+                const baseUrl = CONFIG.lmsUrl.replace(/\/$/, "");
+                let response = await fetch(`${baseUrl}/v1/models`).catch(() => fetch(`${baseUrl}/api/v1/models`));
+                if (!response.ok) throw new Error();
+                const data = await response.json();
+                const models = data.data || data.models || [];
+                if (models.length) {
+                    statusDot.className = 'status-dot status-online';
+                    connWarn.classList.add('hidden');
+                    select.innerHTML = models.map(m => `<option value="${m.id}" ${CONFIG.selectedModel === m.id ? 'selected' : ''}>${m.id}</option>`).join('');
+                } else {
+                    select.innerHTML = '<option value="">No models loaded</option>';
+                }
+            } catch (err) {
+                select.innerHTML = '<option value="">LMS Offline</option>';
+                statusDot.className = 'status-dot status-offline';
+                connWarn.classList.remove('hidden');
+            }
+        }
+
+        // --- Thread Management ---
+        async function createNewThread(title = "New Chat", parentMessages = []) {
+            const id = crypto.randomUUID();
+            const now = Date.now();
+            await db.threads.add({ id, title, createdAt: now, lastUpdatedAt: now });
+            if (parentMessages.length > 0) {
+                const newMessages = parentMessages.map(m => ({ ...m, id: crypto.randomUUID(), threadId: id, timestamp: Date.now() }));
+                await db.messages.bulkAdd(newMessages);
+            }
+            await loadThreads();
+            selectThread(id);
+        }
+
+        async function loadThreads() {
+            const threads = await db.threads.orderBy('lastUpdatedAt').reverse().toArray();
+            const container = document.getElementById('thread-list');
+            container.innerHTML = threads.map(t => `
+                <div onclick="selectThread('${t.id}')" class="group flex items-center justify-between p-3 rounded-lg cursor-pointer transition-colors ${currentThreadId === t.id ? 'sidebar-item-active' : 'hover:bg-slate-800/50'}">
+                    <div class="flex items-center gap-3 overflow-hidden">
+                        <i data-lucide="message-square" class="w-4 h-4 shrink-0 text-slate-500"></i>
+                        <span class="text-sm truncate font-medium text-slate-300">${t.title}</span>
+                    </div>
+                    <button onclick="event.stopPropagation(); deleteThread('${t.id}')" class="opacity-0 group-hover:opacity-100 p-1 hover:text-red-400 text-slate-500 transition-opacity"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                </div>
+            `).join('');
+            lucide.createIcons();
+        }
+
+        async function selectThread(id) {
+            currentThreadId = id;
+            const thread = await db.threads.get(id);
+            document.getElementById('current-thread-title').textContent = thread.title;
+            document.getElementById('edit-thread-btn').classList.remove('hidden');
+            await loadMessages();
+            await loadThreads();
+        }
+
+        async function deleteThread(id) {
+            if (confirm("Delete this thread?")) {
+                await db.threads.delete(id);
+                await db.messages.where('threadId').equals(id).delete();
+                if (currentThreadId === id) {
+                    currentThreadId = null;
+                    document.getElementById('chat-container').innerHTML = `<div class="flex flex-col items-center justify-center h-full text-slate-500 opacity-20"><i data-lucide="message-square" class="w-12 h-12"></i></div>`;
+                }
+                await loadThreads();
+            }
+        }
+
+        // --- Message Management ---
+        async function loadMessages() {
+            if (!currentThreadId) return;
+            const messages = await db.messages.where('threadId').equals(currentThreadId).sortBy('timestamp');
+            const container = document.getElementById('chat-container');
+            container.innerHTML = messages.map(m => renderMessage(m)).join('');
+            container.scrollTop = container.scrollHeight;
+            lucide.createIcons();
+        }
+
+        function renderMessage(msg) {
+            const isBot = msg.role === 'assistant';
+            const bubbleClass = isBot ? 'chat-bubble-bot' : 'chat-bubble-user';
+            const parsedContent = isBot ? marked.parse(msg.content) : msg.content;
+            
+            let attachmentHtml = '';
+            if (msg.attachments?.length) {
+                attachmentHtml = `<div class="flex flex-wrap gap-2 mb-2">${msg.attachments.map(att => `<img src="${att.data}" class="max-h-48 rounded-lg border border-slate-700 shadow-sm" />`).join('')}</div>`;
+            }
+
+            let metaBadges = '';
+            if (isBot) {
+                metaBadges += `<div class="mt-2 flex flex-wrap gap-2 items-center">`;
+                
+                // Model Badge
+                if (msg.modelUsed) {
+                    metaBadges += `
+                        <div class="flex items-center gap-1.5 px-2 py-0.5 rounded border border-slate-700 bg-slate-800 text-[9px] text-slate-400 font-medium">
+                            <i data-lucide="cpu" class="w-3 h-3 text-sky-500"></i>
+                            ${msg.modelUsed}
+                        </div>
+                    `;
+                }
+
+                // Search Results Badge
+                if (msg.searchResults) {
+                    metaBadges += `
+                        <button onclick="toggleSearchResults('${msg.id}')" class="flex items-center gap-1.5 px-2 py-0.5 rounded border border-sky-800 bg-sky-900/20 text-[9px] text-sky-400 hover:bg-sky-900/40 transition-colors">
+                            <i data-lucide="globe" class="w-3 h-3"></i>
+                            Live Search Used
+                        </button>
+                    `;
+                }
+                
+                metaBadges += `</div>`;
+                
+                // Search Results expanded view
+                if (msg.searchResults) {
+                    metaBadges += `
+                        <div id="search-res-${msg.id}" class="hidden mt-2 p-3 bg-slate-800/80 border border-slate-700 rounded-lg text-[10px] text-slate-400 overflow-x-auto whitespace-pre-wrap max-h-40 font-mono">
+                            ${msg.searchResults}
+                        </div>
+                    `;
+                }
+            }
+
+            return `
+                <div id="msg-${msg.id}" class="group flex flex-col ${isBot ? 'items-start' : 'items-end'} w-full animate-in fade-in duration-300">
+                    <div class="max-w-[90%] flex gap-3">
+                        ${isBot ? `<div class="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center shrink-0 border border-slate-700"><i data-lucide="bot" class="w-4 h-4 text-sky-400"></i></div>` : ''}
+                        <div class="space-y-1">
+                            <div class="${bubbleClass} p-4 rounded-2xl shadow-sm text-sm leading-relaxed ${isBot ? 'prose' : 'whitespace-pre-wrap'}">
+                                ${attachmentHtml}
+                                ${parsedContent}
+                                ${metaBadges}
+                            </div>
+                            <div class="flex items-center gap-3 px-1 mt-1 text-[10px] text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onclick="deleteMessage('${msg.id}')" class="hover:text-red-400">Delete</button>
+                                <button onclick="forkThread('${msg.id}')" class="hover:text-sky-400">Fork</button>
+                            </div>
+                        </div>
+                        ${!isBot ? `<div class="w-8 h-8 rounded-full bg-sky-600 flex items-center justify-center shrink-0 border border-sky-500 shadow-md"><i data-lucide="user" class="w-4 h-4 text-white"></i></div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function toggleSearchResults(id) {
+            const el = document.getElementById(`search-res-${id}`);
+            el.classList.toggle('hidden');
+        }
+
+        async function deleteMessage(id) {
+            await db.messages.delete(id);
+            await loadMessages();
+        }
+
+        async function forkThread(messageId) {
+            const targetMsg = await db.messages.get(messageId);
+            const allMsgs = await db.messages.where('threadId').equals(targetMsg.threadId).sortBy('timestamp');
+            const index = allMsgs.findIndex(m => m.id === messageId);
+            await createNewThread(`Fork of ${targetMsg.content.substring(0,15)}...`, allMsgs.slice(0, index + 1));
+        }
+
+        // --- Logic & Streaming ---
+        function setStatus(text, visible = true) {
+            const el = document.getElementById('action-status');
+            const txt = document.getElementById('action-text');
+            txt.textContent = text;
+            el.classList.toggle('hidden', !visible);
+        }
+
+        async function performTavilySearch(query) {
+            if (!CONFIG.tavilyKey) return null;
+            setStatus("Searching the web for live data...");
+            
+            const isNews = ["news", "today", "current", "latest", "happen"].some(k => query.toLowerCase().includes(k));
+            
+            try {
+                const response = await fetch('https://api.tavily.com/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        api_key: CONFIG.tavilyKey, 
+                        query: query, 
+                        search_depth: "advanced", 
+                        topic: isNews ? "news" : "general",
+                        days: isNews ? 7 : undefined,
+                        max_results: 5 
+                    })
+                });
+                const data = await response.json();
+                if (!data.results || data.results.length === 0) return "No relevant web results found.";
+                return data.results.map(r => `Source: [${r.title}](${r.url})\nContent: ${r.content}`).join('\n\n');
+            } catch (err) {
+                console.error("Tavily Error:", err);
+                return "Search failed: " + err.message;
+            }
+        }
+
+        async function handleSend() {
+            if (isProcessing) return;
+            const input = document.getElementById('user-input');
+            const content = input.value.trim();
+            if (!content && !attachments.length) return;
+
+            if (!currentThreadId) await createNewThread("New Chat");
+            
+            isProcessing = true;
+            document.getElementById('send-btn').disabled = true;
+            input.value = '';
+            input.style.height = "auto";
+
+            const userMsgId = crypto.randomUUID();
+            const currentAttachments = [...attachments];
+            attachments = [];
+            document.getElementById('attachment-preview').innerHTML = '';
+
+            await db.messages.add({ id: userMsgId, threadId: currentThreadId, role: 'user', content, attachments: currentAttachments, timestamp: Date.now() });
+            await db.threads.update(currentThreadId, { lastUpdatedAt: Date.now() });
+            await loadMessages();
+
+            setStatus("Thinking...");
+            
+            let finalPromptContent = content;
+            let capturedSearchResults = null;
+            const agenticSearchEnabled = CONFIG.agenticSearch;
+            const forceSearch = document.getElementById('force-search').checked;
+            const activeModel = document.getElementById('model-select').value;
+
+            if (CONFIG.tavilyKey) {
+                const keywords = ["current", "today", "news", "who is", "latest", "update", "weather", "stock", "price", "now", "happening", "vs", "time"];
+                const isAgenticMatch = agenticSearchEnabled && keywords.some(k => content.toLowerCase().includes(k));
+                
+                if (forceSearch || isAgenticMatch) {
+                    capturedSearchResults = await performTavilySearch(content);
+                    const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                    
+                    if (capturedSearchResults) {
+                        finalPromptContent = `[SYSTEM MESSAGE: CURRENT DATE IS ${todayStr}]\n\n[INSTRUCTIONS: Use the GROUNDING INFORMATION below as your primary source for recent events. If the GROUNDING INFORMATION mentions specific dates/sources, PRIORITIZE them over your internal memory. You MUST cite sources using markdown links [Source](URL).]\n\n[GROUNDING INFORMATION]\n${capturedSearchResults}\n\n[USER PROMPT]\n${content}`;
+                    }
+                }
+            }
+
+            setStatus("Model is responding...");
+
+            const history = await db.messages.where('threadId').equals(currentThreadId).sortBy('timestamp');
+            const messages = history.map(m => {
+                const payloadContent = m.id === userMsgId ? finalPromptContent : m.content;
+                const payload = { role: m.role, content: payloadContent };
+                if (m.attachments?.length) {
+                    payload.content = [
+                        { type: "text", text: payload.content }, 
+                        ...m.attachments.map(a => ({ type: "image_url", image_url: { url: a.data } }))
+                    ];
+                }
+                return payload;
+            });
+
+            const assistantId = crypto.randomUUID();
+            let accumulatedText = '';
+            const container = document.getElementById('chat-container');
+            const tempDiv = document.createElement('div');
+            tempDiv.id = `msg-${assistantId}`;
+            container.appendChild(tempDiv);
+
+            try {
+                const baseUrl = CONFIG.lmsUrl.replace(/\/$/, "");
+                const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: activeModel, messages, stream: true })
+                });
+
+                if (!response.body) throw new Error("Streaming not supported");
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (trimmed.startsWith('data: ') && trimmed !== 'data: [DONE]') {
+                            try {
+                                const data = JSON.parse(trimmed.slice(6));
+                                const contentChunk = data.choices[0].delta?.content || "";
+                                accumulatedText += contentChunk;
+                                tempDiv.innerHTML = renderMessage({ 
+                                    id: assistantId, 
+                                    role: 'assistant', 
+                                    content: accumulatedText, 
+                                    timestamp: Date.now(),
+                                    searchResults: capturedSearchResults,
+                                    modelUsed: activeModel
+                                });
+                                container.scrollTop = container.scrollHeight;
+                            } catch (e) {}
+                        }
+                    }
+                }
+                await db.messages.add({ id: assistantId, threadId: currentThreadId, role: 'assistant', content: accumulatedText, timestamp: Date.now(), searchResults: capturedSearchResults, modelUsed: activeModel });
+                if (history.length <= 1) {
+                    const title = content.substring(0, 30) + (content.length > 30 ? '...' : '');
+                    await db.threads.update(currentThreadId, { title });
+                    await loadThreads();
+                }
+            } catch (err) {
+                console.error(err);
+                tempDiv.innerHTML = `<div class="p-3 bg-red-900/20 text-red-400 text-xs rounded-lg border border-red-800">Connection error: ${err.message}. Check CORS settings in LM Studio.</div>`;
+            } finally {
+                isProcessing = false;
+                document.getElementById('send-btn').disabled = false;
+                setStatus("", false);
+            }
+        }
+
+        // --- Helpers ---
+        function toggleSettings() { document.getElementById('settings-modal').classList.toggle('hidden'); }
+        function handleFiles(e) {
+            Array.from(e.target.files).forEach(file => {
+                const reader = new FileReader();
+                reader.onload = (ev) => {
+                    attachments.push({ name: file.name, data: ev.target.result });
+                    document.getElementById('attachment-preview').innerHTML = attachments.map(a => `<div class="w-10 h-10"><img src="${a.data}" class="w-full h-full object-cover rounded border border-slate-700"/></div>`).join('');
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function exportToPDF() {
+            if (!currentThreadId) return;
+            const msgs = await db.messages.where('threadId').equals(currentThreadId).sortBy('timestamp');
+            const thread = await db.threads.get(currentThreadId);
+            const pdfContainer = document.getElementById('pdf-content');
+            pdfContainer.innerHTML = `<h1 style="color:black;border-bottom:1px solid #ddd;font-family:sans-serif">${thread.title}</h1>` + 
+                msgs.map(m => `<div style="margin:10px 0;padding:15px;background:${m.role === 'user' ? '#f5f5f5' : '#ffffff'};border:1px solid #eee;border-radius:8px;font-family:sans-serif">
+                    <b style="text-transform:uppercase;font-size:10px;color:#666">${m.role} ${m.modelUsed ? '(' + m.modelUsed + ')' : ''}</b><br>
+                    <div style="font-size:12px;margin-top:5px;white-space:pre-wrap">${m.content}</div>
+                </div>`).join('');
+            html2pdf().from(pdfContainer).set({ margin: 0.5 }).save(`${thread.title}.pdf`);
+        }
+
+        async function clearAllData() {
+            if (confirm("Permanently delete ALL chats?")) { await db.delete(); localStorage.clear(); window.location.reload(); }
+        }
+    </script>
+</body>
+</html>
