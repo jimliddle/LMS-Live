@@ -5,7 +5,7 @@ LMS live is a single-file web application designed to provide a threaded, agenti
 <img width="945.5" height="468.5" alt="LM Live Screesnshot" src="https://github.com/user-attachments/assets/c600577d-66a1-44c1-83ab-347bb8cafbd7" />
 
 
-## 🚀 Features
+## Features
 
 - Threaded Conversations: Organise chats into independent threads with the ability to rename, delete, and manage history.
 
@@ -29,7 +29,7 @@ LMS live is a single-file web application designed to provide a threaded, agenti
 
 - Modern UI: A responsive, dark-mode interface built with Tailwind CSS and Lucide Icons.
 
-## 🛠️ Setup & Requirements
+## Setup & Requirements
 
 1. LM Studio Configuration
 
@@ -63,7 +63,7 @@ Open Settings in the app and paste your key.
 
 Toggle "Tavily Agentic" to allow the LLM to search when it detects a need for current information.
 
-## 📚 Technical Stack
+## Technical Stack
 
 - Frontend: HTML5, Tailwind CSS
 
@@ -77,7 +77,7 @@ Toggle "Tavily Agentic" to allow the LLM to search when it detects a need for cu
 
 - Connectivity: Standard Fetch API with ReadableStream for LLM output.
 
-## ⚠️ Troubleshooting
+## Troubleshooting
 
 LMS Offline: Ensure the server is started in LM Studio.
 
@@ -89,6 +89,6 @@ Search Hallucinations: Use the "Live Search Used" badge in the chat bubble to ve
 
 If more than one person is using this to access an LM Studio available on the network then each user may load the model they wish to interact with (that is available from the dropdown list) but beware that this means LM Studio is loading multiple models so your hardware needs to be able to support it.
 
-## 📄 License
+## License
 
 MIT License - Feel free to modify and use this for your own local LLM workflows.
